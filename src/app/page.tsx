@@ -29,7 +29,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { generateContent, type GenerateContentInput } from "@/ai/flows/generate-content-flow";
+import { generateContent, type GenerateContentInput, type GenerateContentOutput } from "@/ai/flows/generate-content-flow"; // Corrected import for output type
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -61,7 +61,8 @@ import {
 
 
 // Regex to detect fenced code blocks (basic)
-const CODE_BLOCK_REGEX = /^```(\w+)?\n([\s\S]+)\n```$/;
+const CODE_BLOCK_REGEX = /^```(\w+)?\n([\s\S]+?)\n```$/m; // Added 'm' flag for multiline matching, non-greedy match
+
 
 // Define the form schema using Zod
 const FormSchema = z.object({
@@ -73,9 +74,9 @@ const FormSchema = z.object({
   path: ["prompt"],
 });
 
-// Define the structure for a chat message
+// Define the structure for a chat message (Input to the AI flow uses a different schema)
 interface ChatMessage {
-  role: "user" | "ai";
+  role: "user" | "ai"; // Changed 'model' to 'ai' for consistency
   content: string;
   imageDataUri?: string; // Optional image for user message
   documentName?: string; // Optional document name for user message
@@ -167,7 +168,8 @@ export default function Home() {
     return conversations.find(c => c.id === currentChatId);
   };
 
-  const form = useForm<GenerateContentInput>({
+  // Define form using useForm hook with Zod resolver
+  const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
       prompt: "",
@@ -175,6 +177,7 @@ export default function Home() {
       documentText: undefined,
     },
   });
+
 
    // Reset file state when switching chats or starting new one
    useEffect(() => {
@@ -197,6 +200,7 @@ export default function Home() {
         }
       }, 0);
     }
+    // Dependency includes isLoading to scroll down when the loading indicator appears/disappears
   }, [getCurrentChat()?.messages.length, isLoading]);
 
 
@@ -216,9 +220,9 @@ export default function Home() {
   };
 
 
-  async function onSubmit(data: GenerateContentInput) {
+  async function onSubmit(formData: z.infer<typeof FormSchema>) {
     // Ensure there's either a prompt or a file, and a chat is selected or can be created
-    if ((!data.prompt && !uploadedFile)) {
+    if ((!formData.prompt && !uploadedFile)) {
         toast({ title: "Input Required", description: "Please enter a prompt or attach a file.", variant: "destructive" });
         return;
     }
@@ -243,7 +247,7 @@ export default function Home() {
 
     const userMessage: ChatMessage = {
         role: "user",
-        content: data.prompt,
+        content: formData.prompt, // Use formData directly
         imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
         documentName: uploadedFile?.type === 'text' ? uploadedFile.name : undefined,
       };
@@ -255,7 +259,7 @@ export default function Home() {
                 const newMessages = [...conv.messages, userMessage];
                 // Update title if it's the first message
                 const newTitle = (conv.title === "New Conversation" && newMessages.length === 1)
-                    ? (data.prompt || (uploadedFile ? `Chat about ${uploadedFile.name}` : "Untitled Chat")).substring(0, 30) + ((data.prompt || uploadedFile?.name || "Untitled Chat").length > 30 ? '...' : '')
+                    ? (formData.prompt || (uploadedFile ? `Chat about ${uploadedFile.name}` : "Untitled Chat")).substring(0, 30) + ((formData.prompt || uploadedFile?.name || "Untitled Chat").length > 30 ? '...' : '')
                     : conv.title;
                 return { ...conv, messages: newMessages, title: newTitle };
             }
@@ -264,18 +268,27 @@ export default function Home() {
         return updatedConvs;
      });
 
-     // Get the most up-to-date conversation history *after* adding the user message
-     // Need to ensure the state update has propagated, use a function in setConversations or useEffect dependency
-     // For simplicity, let's get it before the async call, hoping the state update is fast enough (not ideal)
-     const currentConversationState = conversations.find(c => c.id === chatId);
-     const historyForFlow = currentConversationState?.messages.slice(0, -1).map(msg => ({ // Exclude the *just added* user message
-        role: msg.role === 'ai' ? 'ai' : 'user', // Ensure role is 'user' or 'ai'
-        content: msg.content,
-     })) || [];
+     // --- Fetch history *after* updating state ---
+     // Use functional update to ensure we get the latest state if updates are batched
+     let historyForFlow: GenerateContentInput['conversationHistory'] = [];
+     setConversations(prevConvs => {
+        const currentConversationState = prevConvs.find(c => c.id === chatId);
+        // Prepare history for the flow: include all messages *before* the one just added
+        historyForFlow = currentConversationState?.messages
+            .slice(0, -1) // Get all messages except the last one
+            .map(msg => ({
+                role: msg.role, // Keep 'user' or 'ai'
+                content: msg.content,
+                // Note: Flow input expects 'user' or 'ai', adjust if your Flow input schema differs
+            })) || [];
+         return prevConvs; // Return unchanged state, just using this to access the latest
+     })
+     // --- End Fetch history ---
+
 
     // Prepare data for the AI flow
     const flowInput: GenerateContentInput = {
-        prompt: data.prompt,
+        prompt: formData.prompt, // Use formData directly
         imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
         documentText: uploadedFile?.type === 'text' ? uploadedFile?.dataUriOrText : undefined,
         conversationHistory: historyForFlow, // Send history *before* the current user message
@@ -289,7 +302,7 @@ export default function Home() {
 
     try {
       // Call the updated generateContent flow
-      const result = await generateContent(flowInput);
+      const result: GenerateContentOutput = await generateContent(flowInput); // Ensure result type matches
       const aiMessage: ChatMessage = { role: "ai", content: result.text };
        setConversations(prevConvs =>
           prevConvs.map(conv =>
@@ -302,7 +315,8 @@ export default function Home() {
        const errorMessage: ChatMessage = { role: "ai", content: "Sorry, I couldn't generate a response. Please try again." };
         setConversations(prevConvs =>
             prevConvs.map(conv =>
-                conv.id === chatId ? { ...conv, messages: [...conv.messages, errorMessage] } : conv
+                // Ensure messages array exists before spreading
+                conv.id === chatId ? { ...conv, messages: [...(conv.messages || []), errorMessage] } : conv
             )
         );
        toast({
@@ -442,25 +456,33 @@ export default function Home() {
                     ) : (
                         conversations.map((conversation) => (
                             <SidebarMenuItem key={conversation.id}>
-                                <SidebarMenuButton
-                                    size="sm"
-                                    className="h-auto justify-start whitespace-normal text-left pr-8 relative group" // Added pr-8, relative, group
-                                    isActive={conversation.id === currentChatId}
-                                    onClick={() => switchChat(conversation.id)}
-                                >
-                                    <div className="flex items-start gap-2 w-full">
-                                        <MessageSquareText size={16} className="flex-shrink-0 mt-1 text-muted-foreground"/>
-                                        <span className="flex-1 text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap text-foreground">
-                                            {conversation.title || "New Chat"}
-                                        </span>
-                                    </div>
-                                    {/* Delete button */}
-                                      <AlertDialog>
+                                {/* Wrap clickable area and delete button in a relative div */}
+                                <div className="relative group flex w-full items-center">
+                                    {/* Render the SidebarMenuButton directly as a button */}
+                                    <SidebarMenuButton
+                                        size="sm"
+                                        className="h-auto justify-start whitespace-normal text-left flex-1 pr-8" // Use flex-1 to take space, pr-8 for delete btn
+                                        isActive={conversation.id === currentChatId}
+                                        onClick={() => switchChat(conversation.id)}
+                                        aria-label={`Switch to chat: ${conversation.title || "New Chat"}`}
+                                    >
+                                        {/* Inner content for the button */}
+                                        <div className="flex items-start gap-2 w-full cursor-pointer"> {/* Added cursor-pointer */}
+                                            <MessageSquareText size={16} className="flex-shrink-0 mt-1 text-muted-foreground"/>
+                                            <span className="flex-1 text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap text-foreground">
+                                                {conversation.title || "New Chat"}
+                                            </span>
+                                        </div>
+                                    </SidebarMenuButton>
+
+                                    {/* Delete button - positioned absolutely */}
+                                    <AlertDialog>
+                                        {/* Use asChild to make the Button the trigger */}
                                         <AlertDialogTrigger asChild>
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive"
+                                                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive z-10" // Ensure z-index
                                                 onClick={(e) => e.stopPropagation()} // Prevent switching chat
                                                 aria-label="Delete chat"
                                             >
@@ -489,7 +511,7 @@ export default function Home() {
                                           </AlertDialogFooter>
                                         </AlertDialogContent>
                                     </AlertDialog>
-                                </SidebarMenuButton>
+                                </div>
                             </SidebarMenuItem>
                         ))
                     )}
@@ -585,7 +607,7 @@ export default function Home() {
 
                            {/* Render CodeBlock or regular text */}
                            {codeBlockMatch && message.role === 'ai' ? (
-                             <CodeBlock language={codeBlockMatch[1]} code={codeBlockMatch[2]} />
+                             <CodeBlock language={codeBlockMatch[1]} code={codeBlockMatch[2].trim()} /> // Trim code content
                            ) : (
                              message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>
                            )}

@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -534,8 +535,9 @@ const sidebarMenuButtonVariants = cva(
 )
 
 const SidebarMenuButton = React.forwardRef<
+  // Updated to HTMLButtonElement as we removed `asChild` when not needed
   HTMLButtonElement,
-  React.ComponentProps<"button"> & {
+  React.ComponentProps<"button"> & { // Changed from React.ComponentProps<"button">
     asChild?: boolean
     isActive?: boolean
     tooltip?: string | React.ComponentProps<typeof TooltipContent>
@@ -543,43 +545,48 @@ const SidebarMenuButton = React.forwardRef<
 >(
   (
     {
-      asChild = false,
+      asChild = false, // Keep asChild for cases where it might still be needed (e.g., wrapping links)
       isActive = false,
       variant = "default",
       size = "default",
       tooltip,
       className,
+      children, // Accept children
       ...props
     },
     ref
   ) => {
-    const Comp = asChild ? Slot : "button"
-    const { isMobile, state } = useSidebar()
+    // Determine the component type: use Slot if asChild is true, otherwise 'button'
+    const Comp = asChild ? Slot : "button";
+    const { isMobile, state } = useSidebar();
 
-    const button = (
+    const buttonContent = (
       <Comp
         ref={ref}
         data-sidebar="menu-button"
         data-size={size}
         data-active={isActive}
-        className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+        className={cn(sidebarMenuButtonVariants({ variant, size, className }))}
         {...props}
-      />
-    )
+      >
+        {children}
+      </Comp>
+    );
 
     if (!tooltip) {
-      return button
+      return buttonContent;
     }
 
     if (typeof tooltip === "string") {
       tooltip = {
         children: tooltip,
-      }
+      };
     }
 
     return (
       <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        {/* Ensure TooltipTrigger wraps the correct element (button or Slot's child) */}
+        <TooltipTrigger asChild={asChild}>{buttonContent}</TooltipTrigger>
         <TooltipContent
           side="right"
           align="center"
@@ -587,10 +594,11 @@ const SidebarMenuButton = React.forwardRef<
           {...tooltip}
         />
       </Tooltip>
-    )
+    );
   }
-)
-SidebarMenuButton.displayName = "SidebarMenuButton"
+);
+SidebarMenuButton.displayName = "SidebarMenuButton";
+
 
 const SidebarMenuAction = React.forwardRef<
   HTMLButtonElement,
