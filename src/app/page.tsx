@@ -266,8 +266,6 @@ export default function Home() {
 
      // Get the most up-to-date conversation history *after* adding the user message
      // Need to ensure the state update has propagated, use a function in setConversations or useEffect dependency
-     const latestConversation = conversations.find(c => c.id === chatId); // May not be updated yet here
-     // A better way: pass history explicitly or fetch it inside the API call function if needed immediately
      // For simplicity, let's get it before the async call, hoping the state update is fast enough (not ideal)
      const currentConversationState = conversations.find(c => c.id === chatId);
      const historyForFlow = currentConversationState?.messages.slice(0, -1).map(msg => ({ // Exclude the *just added* user message
@@ -511,10 +509,11 @@ export default function Home() {
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset className="flex flex-col">
-        <main className="flex flex-1 flex-col items-center justify-center p-0 md:p-4 bg-transparent md:bg-background">
-          <Card className="w-full max-w-4xl h-full md:h-[calc(100vh-2rem)] flex flex-col shadow-lg rounded-none md:rounded-lg border-none md:border">
-            <CardHeader className="flex flex-row items-center justify-between border-b p-3 md:p-4">
+      <SidebarInset className="flex flex-col h-screen"> {/* Ensure SidebarInset takes full height */}
+        <main className="flex flex-1 flex-col items-stretch justify-center p-0 bg-transparent"> {/* Changed p-0 md:p-4 */}
+           {/* Make Card fill the available space */}
+          <Card className="w-full h-full flex flex-col shadow-none rounded-none border-none">
+            <CardHeader className="flex flex-row items-center justify-between border-b p-3 md:p-4 flex-shrink-0"> {/* Added flex-shrink-0 */}
                 <div className="flex items-center gap-2">
                     <SidebarTrigger className="md:hidden" /> {/* Show trigger only on mobile */}
                     <div>
@@ -527,7 +526,7 @@ export default function Home() {
                 {/* Optional: Add settings or other actions here */}
             </CardHeader>
 
-            <CardContent className="flex-1 overflow-hidden p-0">
+            <CardContent className="flex-1 overflow-hidden p-0"> {/* Ensure content area can grow */}
                <ScrollArea className="h-full" ref={chatContainerRef}>
                 <div className="space-y-4 p-4 md:p-6">
                  {!currentChat ? (
@@ -549,7 +548,7 @@ export default function Home() {
                        <div
                          key={`${currentChat.id}-${index}`}
                          className={cn(
-                           "flex items-start gap-3 group relative", // Added group relative
+                           "flex items-start gap-3 group relative max-w-full md:max-w-4xl mx-auto", // Add max-width and center
                            message.role === "user" ? "justify-end" : "justify-start"
                          )}
                        >
@@ -610,7 +609,7 @@ export default function Home() {
                    })
                  )}
                   {isLoading && currentChat?.messages[currentChat.messages.length - 1]?.role === 'user' && (
-                    <div className="flex items-start gap-3 justify-start">
+                    <div className="flex items-start gap-3 justify-start max-w-full md:max-w-4xl mx-auto"> {/* Add max-width and center */}
                        <Avatar className="h-8 w-8 flex-shrink-0">
                            <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={20} /></AvatarFallback>
                         </Avatar>
@@ -623,16 +622,16 @@ export default function Home() {
                 </ScrollArea>
             </CardContent>
 
-            <CardFooter className="border-t p-2 md:p-4 bg-background rounded-b-lg">
+            <CardFooter className="border-t p-2 md:p-4 bg-background rounded-b-lg flex-shrink-0"> {/* Added flex-shrink-0 */}
                {!currentChatId && (
-                  <div className="text-center w-full text-muted-foreground text-sm p-4">
+                  <div className="text-center w-full text-muted-foreground text-sm p-4 max-w-full md:max-w-4xl mx-auto"> {/* Add max-width and center */}
                      Please select a conversation or start a new one to send a message.
                   </div>
                )}
               {currentChatId && (<Form {...form}>
                 <form
                   onSubmit={form.handleSubmit(onSubmit)}
-                  className="flex w-full items-start space-x-2 md:space-x-4"
+                  className="flex w-full items-start space-x-2 md:space-x-4 max-w-full md:max-w-4xl mx-auto" // Add max-width and center
                 >
                     {/* File Upload Button */}
                     <Button
