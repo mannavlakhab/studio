@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText } from "lucide-react"; // Added MessageSquareText
+import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSquare } from "lucide-react"; // Added PlusSquare
 
 import { Button } from "@/components/ui/button";
 import {
@@ -117,24 +117,31 @@ export default function Home() {
     return "New Conversation";
   }
 
+  const startNewChat = () => {
+    setChatHistory([]);
+    form.reset(); // Also clear the input field
+  };
+
   return (
     <div className="flex h-screen">
        <Sidebar>
-        <SidebarHeader>
+        <SidebarHeader className="flex items-center justify-between p-2">
           <div className="flex items-center gap-2">
              <Avatar className="h-8 w-8">
                 <AvatarFallback><BrainCircuit size={20} /></AvatarFallback>
              </Avatar>
              <span className="text-lg font-semibold">AI Playground</span>
           </div>
-
+           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={startNewChat} aria-label="Start New Chat">
+              <PlusSquare size={20} />
+           </Button>
         </SidebarHeader>
         <SidebarSeparator />
         <SidebarContent className="p-0">
             <ScrollArea className="h-full p-2" ref={scrollAreaRef}>
                  <SidebarMenu>
                     {chatHistory.length === 0 && (
-                        <div className="text-center text-muted-foreground p-4">No history yet. Start chatting!</div>
+                        <div className="text-center text-muted-foreground p-4">Start a new chat!</div>
                     )}
                     {chatHistory.length > 0 && (
                         <SidebarMenuItem>
@@ -177,7 +184,7 @@ export default function Home() {
                     <div>
                       <CardTitle className="text-2xl font-bold">AI Chat</CardTitle>
                       <CardDescription className="text-muted-foreground">
-                        Chat with the AI. Your conversation history is in the sidebar.
+                        {chatHistory.length > 0 ? 'Chatting...' : 'Start a new conversation'}
                       </CardDescription>
                     </div>
                 </div>
@@ -186,6 +193,12 @@ export default function Home() {
             <CardContent className="flex-1 overflow-hidden p-0">
                <ScrollArea className="h-full" ref={chatContainerRef}>
                 <div className="space-y-4 p-6">
+                  {chatHistory.length === 0 && (
+                     <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
+                        <BrainCircuit size={48} className="mb-4"/>
+                        <p>Ask me anything!</p>
+                     </div>
+                  )}
                   {chatHistory.map((message, index) => (
                     <div
                       key={index}
