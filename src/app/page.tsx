@@ -257,14 +257,16 @@ export default function Home() {
                       <FormItem className="flex-1">
                         {/* Gradient Border Wrapper */}
                         <div className={cn(
-                            "rounded-lg p-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500" // Removed focus ring classes
+                            "rounded-lg p-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500",
+                            // Re-add focus ring styles
+                            "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background"
                            )}>
                           <FormControl>
                             <Textarea
                               placeholder="Type your message here..."
                               className={cn(
                                 "min-h-[60px] resize-none text-base flex-1 bg-background", // Use background color
-                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0" // Remove default border and focus ring
+                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0" // Keep these to avoid double outline on textarea itself
                                 )}
                               {...field}
                               aria-label="Prompt Input"
