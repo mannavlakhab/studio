@@ -7,8 +7,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSquare, Paperclip, X, FileText, Image as ImageIcon } from "lucide-react";
-import Image from 'next/image'; // Import next/image
-import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
+import Image from 'next/image';
+import { v4 as uuidv4 } from 'uuid';
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +29,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { generateContent, type GenerateContentInput } from "@/ai/flows/generate-content-flow"; // Updated import
+import { generateContent, type GenerateContentInput } from "@/ai/flows/generate-content-flow";
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -44,19 +44,22 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge"; // Import Badge
+import { Badge } from "@/components/ui/badge";
+import { CodeBlock } from "@/components/ui/code-block"; // Import CodeBlock
+import { CopyButton } from "@/components/ui/copy-button"; // Import CopyButton
+
+// Regex to detect fenced code blocks (basic)
+const CODE_BLOCK_REGEX = /^```(\w+)?\n([\s\S]+)\n```$/;
 
 // Define the form schema using Zod
-// Prompt is no longer strictly required if a file is attached
 const FormSchema = z.object({
   prompt: z.string(),
   imageDataUri: z.string().optional(),
   documentText: z.string().optional(),
 }).refine(data => data.prompt || data.imageDataUri || data.documentText, {
   message: "Please enter a prompt or attach a file.",
-  path: ["prompt"], // Assign error to prompt field for simplicity
+  path: ["prompt"],
 });
-
 
 // Define the structure for a chat message
 interface ChatMessage {
@@ -76,12 +79,31 @@ interface Conversation {
 // Allowed file types
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_TEXT_TYPES = ['text/plain'];
-// Basic PDF handling might involve sending data URI if model supports it, or extracting text
-// For now, we'll primarily handle plain text and images client-side.
 
 export default function Home() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    // Load conversations from localStorage on initial render
+    if (typeof window !== 'undefined') {
+        const savedConversations = localStorage.getItem('aiPlaygroundConversations');
+        try {
+            return savedConversations ? JSON.parse(savedConversations) : [];
+        } catch (error) {
+            console.error("Failed to parse conversations from localStorage", error);
+            return [];
+        }
+    }
+    return [];
+  });
+  const [currentChatId, setCurrentChatId] = useState<string | null>(() => {
+     if (typeof window !== 'undefined') {
+        const savedChatId = localStorage.getItem('aiPlaygroundCurrentChatId');
+        // Check if a chat with this ID exists before setting it
+        const initialConversations = conversations; // Use the already loaded conversations
+        const chatExists = initialConversations.some(conv => conv.id === savedChatId);
+        return chatExists ? savedChatId : null;
+     }
+     return null;
+  });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; type: 'image' | 'text'; dataUriOrText: string } | null>(null);
   const { toast } = useToast();
@@ -89,12 +111,36 @@ export default function Home() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+   // Save conversations and current chat ID to localStorage whenever they change
+   useEffect(() => {
+     if (typeof window !== 'undefined') {
+       localStorage.setItem('aiPlaygroundConversations', JSON.stringify(conversations));
+       if (currentChatId) {
+         localStorage.setItem('aiPlaygroundCurrentChatId', currentChatId);
+       } else {
+         localStorage.removeItem('aiPlaygroundCurrentChatId');
+       }
+     }
+   }, [conversations, currentChatId]);
+
+    // Ensure currentChatId is valid on load or if conversations change
+    useEffect(() => {
+      if (currentChatId && !conversations.some(conv => conv.id === currentChatId)) {
+          // If the current chat ID is no longer valid (e.g., deleted), clear it
+          setCurrentChatId(null);
+      } else if (!currentChatId && conversations.length > 0) {
+          // If no chat is selected but chats exist, select the first one
+          // setCurrentChatId(conversations[0].id); // Optionally select the first chat
+      }
+    }, [conversations, currentChatId]);
+
+
   // Helper function to get the currently active conversation
   const getCurrentChat = (): Conversation | undefined => {
     return conversations.find(c => c.id === currentChatId);
   };
 
-  const form = useForm<GenerateContentInput>({ // Updated type
+  const form = useForm<GenerateContentInput>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
       prompt: "",
@@ -108,24 +154,33 @@ export default function Home() {
     setUploadedFile(null);
     form.setValue('imageDataUri', undefined);
     form.setValue('documentText', undefined);
+    // Reset file input visually
+    if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+    }
    }, [currentChatId, form]);
 
   // Scroll chat history to the bottom when messages change
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      // Use setTimeout to ensure scrolling happens after the DOM update
+      setTimeout(() => {
+        if(chatContainerRef.current){
+           chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      }, 0);
     }
-  }, [getCurrentChat()?.messages, isLoading]); // Depend on current chat messages and loading state
+  }, [getCurrentChat()?.messages.length, isLoading]);
 
 
   // Function to set or update conversation title
   const updateConversationTitle = (chatId: string, prompt: string, fileName?: string) => {
      setConversations(prevConvs =>
         prevConvs.map(conv => {
-            // Only update title if it's the default "New Conversation"
-            if (conv.id === chatId && conv.title === "New Conversation") {
-                 let newTitle = prompt || `Chat about ${fileName}`;
-                 newTitle = newTitle.length > 40 ? newTitle.substring(0, 40) + '...' : newTitle;
+            // Only update title if it's the default "New Conversation" or the first message
+            if (conv.id === chatId && (conv.title === "New Conversation" || conv.messages.length <= 1)) {
+                 let baseTitle = prompt || (fileName ? `Chat about ${fileName}` : "Untitled Chat");
+                 let newTitle = baseTitle.length > 30 ? baseTitle.substring(0, 30) + '...' : baseTitle;
                  return { ...conv, title: newTitle };
             }
             return conv;
@@ -135,27 +190,29 @@ export default function Home() {
 
 
   async function onSubmit(data: GenerateContentInput) {
-    // Ensure there's either a prompt or a file
-    if (!data.prompt && !uploadedFile) {
+    // Ensure there's either a prompt or a file, and a chat is selected or can be created
+    if ((!data.prompt && !uploadedFile)) {
         toast({ title: "Input Required", description: "Please enter a prompt or attach a file.", variant: "destructive" });
         return;
     }
 
     setIsLoading(true);
     let chatId = currentChatId;
-    const isNewChat = !chatId;
+    let isNewChat = false;
 
     // If no chat is selected, start a new one
     if (!chatId) {
-      chatId = startNewChat(); // startNewChat now returns the new chat ID
+      const newId = startNewChat(); // startNewChat now returns the new chat ID
+      if (!newId) {
+          console.error("Failed to create new chat ID");
+          setIsLoading(false);
+          toast({ title: "Error", description: "Could not start a new chat.", variant: "destructive" });
+          return;
+      }
+      chatId = newId;
+      isNewChat = true;
     }
 
-    if (!chatId) {
-        console.error("Failed to create or find chat ID");
-        setIsLoading(false);
-        toast({ title: "Error", description: "Could not start chat.", variant: "destructive" });
-        return;
-    }
 
     const userMessage: ChatMessage = {
         role: "user",
@@ -164,18 +221,21 @@ export default function Home() {
         documentName: uploadedFile?.type === 'text' ? uploadedFile.name : undefined,
       };
 
-    // Update conversations state
-    setConversations(prevConvs =>
-      prevConvs.map(conv =>
-        conv.id === chatId ? { ...conv, messages: [...conv.messages, userMessage] } : conv
-      )
-    );
-
-     // Set title if it's the first user message in a new chat
-    if (isNewChat) {
-        updateConversationTitle(chatId, data.prompt, uploadedFile?.name);
-    }
-
+     // Add user message and potentially update title
+     setConversations(prevConvs => {
+        const updatedConvs = prevConvs.map(conv => {
+            if (conv.id === chatId) {
+                const newMessages = [...conv.messages, userMessage];
+                // Update title if it's the first message
+                const newTitle = (conv.title === "New Conversation" && newMessages.length === 1)
+                    ? (data.prompt || (uploadedFile ? `Chat about ${uploadedFile.name}` : "Untitled Chat")).substring(0, 30) + ((data.prompt || uploadedFile?.name || "Untitled Chat").length > 30 ? '...' : '')
+                    : conv.title;
+                return { ...conv, messages: newMessages, title: newTitle };
+            }
+            return conv;
+        });
+        return updatedConvs;
+     });
 
     // Prepare data for the AI flow
     const flowInput: GenerateContentInput = {
@@ -184,8 +244,11 @@ export default function Home() {
         documentText: uploadedFile?.type === 'text' ? uploadedFile.dataUriOrText : undefined,
       };
 
-    form.reset(); // Reset form after processing input
-    setUploadedFile(null); // Clear uploaded file state
+    // Reset form *after* extracting necessary data but *before* API call starts visually
+    form.reset({ prompt: "" }); // Only reset prompt, keep file info if needed for retry? No, clear file too.
+    setUploadedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
 
     try {
       // Call the updated generateContent flow
@@ -207,7 +270,7 @@ export default function Home() {
         );
        toast({
          title: "Error",
-         description: "Failed to generate response. Please check your API key and try again.",
+         description: "Failed to generate response. Check console/API key.",
          variant: "destructive",
        });
     } finally {
@@ -216,40 +279,57 @@ export default function Home() {
   }
 
 
-  const startNewChat = (): string => {
+  const startNewChat = (): string | null => {
     const newChatId = uuidv4();
     const newConversation: Conversation = {
         id: newChatId,
-        title: "New Conversation",
+        title: "New Conversation", // Default title, will be updated on first message
         messages: [],
     };
-    setConversations(prev => [newConversation, ...prev]); // Add new chat to the beginning
+    setConversations(prev => [newConversation, ...prev]); // Add to beginning
     setCurrentChatId(newChatId);
-    form.reset(); // Reset input field
+    form.reset({ prompt: "" }); // Reset input field
     setUploadedFile(null); // Reset file state
-    return newChatId; // Return the ID of the newly created chat
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    return newChatId; // Return the ID
   };
 
   const switchChat = (chatId: string) => {
       setCurrentChatId(chatId);
-      form.reset(); // Optionally reset input when switching chats
+      form.reset({ prompt: "" }); // Reset input field when switching chats
       setUploadedFile(null); // Reset file state
+      if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Check if a chat is active, if not, start one
+    let activeChatId = currentChatId;
+    if (!activeChatId) {
+        const newId = startNewChat();
+        if (!newId) {
+            toast({ title: "Error", description: "Could not start a chat to attach the file.", variant: "destructive" });
+            if (fileInputRef.current) fileInputRef.current.value = ""; // Reset input
+            return;
+        }
+        activeChatId = newId; // Now we have an active chat
+    }
+
+
     if (ALLOWED_IMAGE_TYPES.includes(file.type)) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setUploadedFile({ name: file.name, type: 'image', dataUriOrText: reader.result as string });
         form.setValue('imageDataUri', reader.result as string);
-        form.setValue('documentText', undefined); // Ensure only one file type is set
+        form.setValue('documentText', undefined);
+        toast({ title: "Image Ready", description: `"${file.name}" attached.` });
       };
       reader.onerror = (error) => {
         console.error("Error reading image file:", error);
         toast({ title: "Error", description: "Could not read image file.", variant: "destructive" });
+         if (fileInputRef.current) fileInputRef.current.value = ""; // Reset input
       };
       reader.readAsDataURL(file);
     } else if (ALLOWED_TEXT_TYPES.includes(file.type)) {
@@ -257,16 +337,17 @@ export default function Home() {
       reader.onloadend = () => {
         setUploadedFile({ name: file.name, type: 'text', dataUriOrText: reader.result as string });
         form.setValue('documentText', reader.result as string);
-        form.setValue('imageDataUri', undefined); // Ensure only one file type is set
+        form.setValue('imageDataUri', undefined);
+         toast({ title: "Text File Ready", description: `"${file.name}" attached.` });
       };
       reader.onerror = (error) => {
         console.error("Error reading text file:", error);
         toast({ title: "Error", description: "Could not read text file.", variant: "destructive" });
+         if (fileInputRef.current) fileInputRef.current.value = ""; // Reset input
       };
       reader.readAsText(file);
     } else {
-      toast({ title: "Unsupported File Type", description: `File type "${file.type}" is not supported. Please upload an image (JPG, PNG, GIF, WEBP) or a plain text file (.txt).`, variant: "destructive" });
-      // Reset file input if type is invalid
+      toast({ title: "Unsupported File Type", description: `Please upload an image (JPG, PNG, etc.) or a plain text file (.txt).`, variant: "destructive" });
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -277,7 +358,6 @@ export default function Home() {
     setUploadedFile(null);
     form.setValue('imageDataUri', undefined);
     form.setValue('documentText', undefined);
-    // Reset the file input visually
     if (fileInputRef.current) {
         fileInputRef.current.value = "";
     }
@@ -287,16 +367,15 @@ export default function Home() {
 
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-background">
        <Sidebar>
         <SidebarHeader className="flex items-center justify-between p-2">
           <div className="flex items-center gap-2">
              <Avatar className="h-8 w-8">
                 <AvatarFallback><BrainCircuit size={20} /></AvatarFallback>
              </Avatar>
-             <span className="text-lg font-semibold">AI Playground</span>
+             <span className="text-lg font-semibold text-foreground">AI Playground</span>
           </div>
-           {/* Explicitly call startNewChat which now handles state updates */}
            <Button variant="outline" size="icon" className="h-8 w-8" onClick={startNewChat} aria-label="Start New Chat">
               <PlusSquare size={20} />
            </Button>
@@ -306,23 +385,32 @@ export default function Home() {
              <ScrollArea className="h-full p-2" ref={sidebarScrollAreaRef}>
                  <SidebarMenu>
                     {conversations.length === 0 && (
-                        <div className="text-center text-muted-foreground p-4">No chats yet.</div>
+                        <div className="text-center text-muted-foreground p-4 text-sm">No chats yet. Start one!</div>
                     )}
                     {conversations.map((conversation) => (
                         <SidebarMenuItem key={conversation.id}>
                             <SidebarMenuButton
                                 size="sm"
-                                className="h-auto justify-start whitespace-normal text-left" // Ensure text wraps and aligns left
+                                className="h-auto justify-start whitespace-normal text-left pr-8 relative group" // Added pr-8, relative, group
                                 isActive={conversation.id === currentChatId}
                                 onClick={() => switchChat(conversation.id)}
                             >
                                 <div className="flex items-start gap-2 w-full">
-                                    <MessageSquareText size={16} className="flex-shrink-0 mt-1"/> {/* Icon for conversation */}
-                                    {/* Ensure title spans available width and truncates */}
-                                    <span className="flex-1 text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap">
+                                    <MessageSquareText size={16} className="flex-shrink-0 mt-1 text-muted-foreground"/>
+                                    <span className="flex-1 text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap text-foreground">
                                         {conversation.title || "New Chat"}
                                     </span>
                                 </div>
+                                {/* Optional: Add delete button */}
+                                {/* <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100"
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteChat(conversation.id); }}
+                                    aria-label="Delete chat"
+                                >
+                                    <X size={14} />
+                                </Button> */}
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                     ))}
@@ -333,7 +421,7 @@ export default function Home() {
         <SidebarFooter>
             <SidebarMenu>
                 <SidebarMenuItem>
-                    <SidebarMenuButton tooltip="Settings">
+                    <SidebarMenuButton tooltip="Settings are not implemented yet">
                         <Settings/>
                         <span>Settings</span>
                     </SidebarMenuButton>
@@ -343,85 +431,110 @@ export default function Home() {
       </Sidebar>
 
       <SidebarInset className="flex flex-col">
-        <main className="flex flex-1 flex-col items-center justify-center p-4 bg-background">
-          <Card className="w-full max-w-4xl h-[calc(100vh-4rem)] flex flex-col shadow-lg rounded-lg">
-            <CardHeader className="flex flex-row items-center justify-between border-b p-4">
+        <main className="flex flex-1 flex-col items-center justify-center p-0 md:p-4 bg-transparent md:bg-background">
+          <Card className="w-full max-w-4xl h-full md:h-[calc(100vh-2rem)] flex flex-col shadow-lg rounded-none md:rounded-lg border-none md:border">
+            <CardHeader className="flex flex-row items-center justify-between border-b p-3 md:p-4">
                 <div className="flex items-center gap-2">
-                    <SidebarTrigger/>
+                    <SidebarTrigger className="md:hidden" /> {/* Show trigger only on mobile */}
                     <div>
-                      <CardTitle className="text-2xl font-bold">AI Chat</CardTitle>
-                       <CardDescription className="text-muted-foreground">
-                         {currentChat ? currentChat.title : 'Start a new conversation'}
+                      <CardTitle className="text-lg md:text-2xl font-semibold text-foreground">AI Chat</CardTitle>
+                       <CardDescription className="text-xs md:text-sm text-muted-foreground">
+                         {currentChat ? currentChat.title : 'Start or select a conversation'}
                       </CardDescription>
                     </div>
                 </div>
+                {/* Optional: Add settings or other actions here */}
             </CardHeader>
 
             <CardContent className="flex-1 overflow-hidden p-0">
                <ScrollArea className="h-full" ref={chatContainerRef}>
-                <div className="space-y-4 p-6">
-                 {!currentChat || currentChat.messages.length === 0 ? (
+                <div className="space-y-4 p-4 md:p-6">
+                 {!currentChat ? (
                      <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground pt-10">
-                        <BrainCircuit size={48} className="mb-4"/>
+                        <BrainCircuit size={48} className="mb-4 text-primary"/>
+                        <p className="text-lg">Welcome to AI Playground!</p>
+                        <p>Start a new chat or select one from the sidebar.</p>
+                     </div>
+                  ) : currentChat.messages.length === 0 ? (
+                     <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground pt-10">
+                        <MessageSquareText size={48} className="mb-4 text-primary"/>
                         <p>Ask me anything, or attach a file!</p>
+                        <p className="text-sm mt-2">Your conversation will appear here.</p>
                      </div>
                   ) : (
-                   currentChat.messages.map((message, index) => (
-                    <div
-                      key={`${currentChat.id}-${index}`} // Use chat ID and index for a more robust key
-                      className={cn(
-                        "flex items-start gap-3",
-                        message.role === "user" ? "justify-end" : "justify-start"
-                      )}
-                    >
-                      {message.role === "ai" && (
-                        <Avatar className="h-8 w-8 flex-shrink-0">
-                           <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={20} /></AvatarFallback>
-                        </Avatar>
-                      )}
-                      <div
-                        className={cn(
-                          "max-w-[75%] rounded-lg p-3 text-sm shadow-sm flex flex-col gap-2", // Added flex-col and gap
-                           message.role === "user"
-                             ? "bg-primary text-primary-foreground"
-                             : "bg-secondary text-secondary-foreground"
-                        )}
-                      >
-                         {/* Display image if present */}
-                         {message.role === "user" && message.imageDataUri && (
-                            <Image
-                                src={message.imageDataUri}
-                                alt="User upload"
-                                width={200} // Adjust size as needed
-                                height={200}
-                                className="rounded-md object-cover max-w-full"
-                            />
+                   currentChat.messages.map((message, index) => {
+                     const codeBlockMatch = message.content.match(CODE_BLOCK_REGEX);
+                     return (
+                       <div
+                         key={`${currentChat.id}-${index}`}
+                         className={cn(
+                           "flex items-start gap-3 group relative", // Added group relative
+                           message.role === "user" ? "justify-end" : "justify-start"
                          )}
-                         {/* Display document badge if present */}
-                         {message.role === "user" && message.documentName && (
+                       >
+                         {message.role === "ai" && (
+                           <Avatar className="h-8 w-8 flex-shrink-0">
+                             <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={20} /></AvatarFallback>
+                           </Avatar>
+                         )}
+                         <div
+                           className={cn(
+                             "max-w-[85%] rounded-lg p-3 text-sm shadow-sm flex flex-col gap-2",
+                             message.role === "user"
+                               ? "bg-primary text-primary-foreground"
+                               : "bg-card text-card-foreground border" // Use card background for AI
+                           )}
+                         >
+                           {/* Display image if present */}
+                           {message.role === "user" && message.imageDataUri && (
+                             <Image
+                               src={message.imageDataUri}
+                               alt="User upload"
+                               width={200}
+                               height={200}
+                               className="rounded-md object-cover max-w-full"
+                             />
+                           )}
+                           {/* Display document badge if present */}
+                           {message.role === "user" && message.documentName && (
                              <Badge variant="secondary" className="inline-flex items-center gap-1 self-start">
-                                 <FileText size={14} />
-                                 {message.documentName}
+                               <FileText size={14} />
+                               {message.documentName}
                              </Badge>
+                           )}
+
+                           {/* Render CodeBlock or regular text */}
+                           {codeBlockMatch && message.role === 'ai' ? (
+                             <CodeBlock language={codeBlockMatch[1]} code={codeBlockMatch[2]} />
+                           ) : (
+                             message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                           )}
+
+                           {/* Copy button - appears on hover for all messages */}
+                           <CopyButton
+                             textToCopy={message.content}
+                             className={cn(
+                               "absolute -top-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity",
+                               message.role === 'user' ? '-left-2' : '-right-2'
+                             )}
+                           />
+                         </div>
+                         {message.role === "user" && (
+                           <Avatar className="h-8 w-8 flex-shrink-0">
+                             <AvatarFallback className="bg-secondary text-secondary-foreground"><User size={20} /></AvatarFallback>
+                           </Avatar>
                          )}
-                         {/* Display text content */}
-                         {message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>}
-                      </div>
-                      {message.role === "user" && (
-                         <Avatar className="h-8 w-8 flex-shrink-0">
-                           <AvatarFallback className="bg-secondary text-secondary-foreground"><User size={20} /></AvatarFallback>
-                        </Avatar>
-                      )}
-                    </div>
-                   ))
-                  )}
+                       </div>
+                     );
+                   })
+                 )}
                   {isLoading && currentChat?.messages[currentChat.messages.length - 1]?.role === 'user' && (
                     <div className="flex items-start gap-3 justify-start">
                        <Avatar className="h-8 w-8 flex-shrink-0">
                            <AvatarFallback className="bg-primary text-primary-foreground"><Bot size={20} /></AvatarFallback>
                         </Avatar>
-                      <div className="bg-secondary text-secondary-foreground rounded-lg p-3 shadow-sm">
-                        <Loader2 className="h-5 w-5 animate-spin" />
+                      <div className="bg-card text-card-foreground border rounded-lg p-3 shadow-sm">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
                       </div>
                     </div>
                   )}
@@ -429,20 +542,25 @@ export default function Home() {
                 </ScrollArea>
             </CardContent>
 
-            <CardFooter className="border-t p-4 bg-background rounded-b-lg">
-              <Form {...form}>
+            <CardFooter className="border-t p-2 md:p-4 bg-background rounded-b-lg">
+               {!currentChatId && (
+                  <div className="text-center w-full text-muted-foreground text-sm p-4">
+                     Please select a conversation or start a new one to send a message.
+                  </div>
+               )}
+              {currentChatId && (<Form {...form}>
                 <form
                   onSubmit={form.handleSubmit(onSubmit)}
-                  className="flex w-full items-start space-x-4"
+                  className="flex w-full items-start space-x-2 md:space-x-4"
                 >
                     {/* File Upload Button */}
                     <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="self-end h-[60px] w-10 flex-shrink-0"
+                        className="self-end h-10 w-10 md:h-[60px] md:w-10 flex-shrink-0 text-muted-foreground hover:text-primary"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={isLoading || !!uploadedFile} // Disable if loading or file already uploaded
+                        disabled={isLoading || !!uploadedFile || !currentChatId} // Disable if no chat selected
                         aria-label="Attach file"
                     >
                         <Paperclip size={20} />
@@ -453,8 +571,8 @@ export default function Home() {
                         ref={fileInputRef}
                         onChange={handleFileChange}
                         className="hidden"
-                        accept={[...ALLOWED_IMAGE_TYPES, ...ALLOWED_TEXT_TYPES].join(',')} // Define acceptable file types
-                        disabled={isLoading}
+                        accept={[...ALLOWED_IMAGE_TYPES, ...ALLOWED_TEXT_TYPES].join(',')}
+                        disabled={isLoading || !currentChatId} // Disable if no chat selected
                     />
 
                   <FormField
@@ -462,19 +580,19 @@ export default function Home() {
                     name="prompt"
                     render={({ field }) => (
                       <FormItem className="flex-1">
-                         {/* Gradient Border Wrapper - Conditionally apply border */}
                          <div className={cn(
-                            "rounded-lg p-0.5 relative", // Base styles, relative positioning
-                            (field.value || uploadedFile) && "bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500", // Apply gradient if value or file
-                            "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background"
+                            "rounded-lg p-0.5 relative bg-background border border-input focus-within:border-transparent", // Base styles with standard border
+                             (field.value || uploadedFile) && "border-transparent", // Hide standard border when gradient is active
+                             (field.value || uploadedFile) && !isLoading && "bg-gradient-to-r from-teal-400 via-purple-500 to-pink-500", // Apply gradient if value or file and not loading
+                            "focus-within:ring-1 focus-within:ring-ring" // Standard focus ring on wrapper
                            )}>
 
                             {/* Display uploaded file info */}
                             {uploadedFile && (
-                                <div className="absolute top-1 left-2 flex items-center gap-1 z-10">
-                                <Badge variant="secondary" className="flex items-center gap-1 pr-1">
+                                <div className="absolute top-1 left-1 md:left-2 flex items-center gap-1 z-10">
+                                <Badge variant="secondary" className="flex items-center gap-1 pr-1 shadow-sm">
                                     {uploadedFile.type === 'image' ? <ImageIcon size={14} /> : <FileText size={14} />}
-                                    <span className="text-xs max-w-[100px] truncate">{uploadedFile.name}</span>
+                                    <span className="text-xs max-w-[80px] md:max-w-[150px] truncate">{uploadedFile.name}</span>
                                     <Button
                                     type="button"
                                     variant="ghost"
@@ -493,24 +611,26 @@ export default function Home() {
                             <Textarea
                               placeholder={uploadedFile ? "Describe the file or ask a question..." : "Type your message here..."}
                               className={cn(
-                                "min-h-[60px] resize-none text-base flex-1 bg-background",
-                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
-                                uploadedFile ? "pt-7" : "" // Add padding-top if file is uploaded
+                                "min-h-[40px] md:min-h-[60px] resize-none text-sm md:text-base flex-1 bg-background",
+                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0", // Ensure textarea itself has no border/ring
+                                uploadedFile ? "pt-7 md:pt-8" : "pt-2.5 md:pt-3" // Adjust padding based on file upload
                                 )}
                               {...field}
                               aria-label="Prompt Input"
+                              rows={1} // Start with one row
                               onKeyDown={(e) => {
                                   if (e.key === 'Enter' && !e.shiftKey && !isLoading) {
                                       e.preventDefault();
-                                      // Ensure a chat exists or input/file exists before submitting
-                                      if (currentChatId || form.getValues("prompt") || uploadedFile) {
+                                      // Check if there is content to send or a file is uploaded
+                                      if (form.getValues("prompt").trim() || uploadedFile) {
                                           form.handleSubmit(onSubmit)();
                                       } else {
-                                           toast({ title: "Info", description: "Start typing or attach a file to begin.", variant: "default" });
+                                          // Optionally provide feedback if trying to send empty message
+                                           toast({ title: "Empty Message", description: "Please type a message or attach a file.", variant: "default" });
                                       }
                                   }
                               }}
-                              disabled={isLoading}
+                              disabled={isLoading || !currentChatId} // Disable if no chat selected
                             />
                           </FormControl>
                          </div>
@@ -518,16 +638,18 @@ export default function Home() {
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" size="lg" className="self-end h-[60px]" disabled={isLoading || (!form.watch("prompt") && !uploadedFile)}>
+                  <Button type="submit" size="icon" className="self-end h-10 w-10 md:h-[60px] md:w-12 rounded-full md:rounded-md" disabled={isLoading || (!form.watch("prompt") && !uploadedFile) || !currentChatId}>
                     {isLoading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
-                      "Send"
+                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                         <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                       </svg>
                     )}
                     <span className="sr-only">Send message</span>
                   </Button>
                 </form>
-              </Form>
+              </Form>)}
             </CardFooter>
           </Card>
         </main>
@@ -535,4 +657,3 @@ export default function Home() {
     </div>
   );
 }
-
