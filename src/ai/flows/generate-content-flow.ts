@@ -11,6 +11,12 @@
 import {ai} from '@/ai/ai-instance';
 import {z} from 'genkit';
 
+// Define the structure for a single message in the history (used internally for processing)
+const HistoryMessageSchema = z.object({
+    role: z.enum(['user', 'ai']),
+    content: z.string(),
+});
+
 // Define the input schema, making image and document optional
 const GenerateContentInputSchema = z.object({
   prompt: z.string().describe('The text prompt to guide content generation.'),
@@ -26,10 +32,8 @@ const GenerateContentInputSchema = z.object({
     .describe(
       'Optional: Text content extracted from an uploaded document (e.g., .txt file). Use this for context.'
     ),
-  conversationHistory: z.array(z.object({
-    role: z.enum(['user', 'ai']),
-    content: z.string(),
-  })).optional().describe('Optional: The conversation history to maintain context.'),
+  // Raw conversation history from the client
+  conversationHistory: z.array(HistoryMessageSchema).optional().describe('Optional: The conversation history to maintain context.'),
 });
 export type GenerateContentInput = z.infer<typeof GenerateContentInputSchema>;
 
@@ -44,25 +48,35 @@ export async function generateContent(input: GenerateContentInput): Promise<Gene
   return generateContentFlow(input);
 }
 
+// Define the schema for the prompt's input, which includes processed history
+const PromptInputSchema = GenerateContentInputSchema.extend({
+    processedHistory: z.array(z.object({
+        role: z.enum(['user', 'ai']),
+        content: z.string(),
+        isUser: z.boolean(),
+        isAi: z.boolean(),
+    })).optional(),
+}).omit({ conversationHistory: true }); // Omit the original history field
+
 // Define the Genkit prompt
 const prompt = ai.definePrompt({
   name: 'generateContentPrompt',
   input: {
-    schema: GenerateContentInputSchema,
+    schema: PromptInputSchema, // Use the schema with processed history
   },
   output: {
     schema: GenerateContentOutputSchema,
   },
-  // Updated prompt to handle optional image, document text, and conversation history
+  // Updated prompt to use boolean flags (isUser/isAi) instead of 'eq' helper
   prompt: `You are an expert AI assistant. Generate content based on the following information. Prioritize the user's prompt, but use the image, document text, and conversation history as context if provided.
 
-{{#if conversationHistory}}
+{{#if processedHistory}}
 Conversation History:
 ---
-{{#each conversationHistory}}
-{{#if (eq this.role "user")}}
+{{#each processedHistory}}
+{{#if this.isUser}}
 User: {{{this.content}}}
-{{else}}
+{{else if this.isAi}}
 AI: {{{this.content}}}
 {{/if}}
 {{/each}}
@@ -89,7 +103,7 @@ Generate the response based on the prompt and any provided context.
 
 // Define the Genkit flow
 const generateContentFlow = ai.defineFlow<
-  typeof GenerateContentInputSchema,
+  typeof GenerateContentInputSchema, // Flow still takes the original input schema
   typeof GenerateContentOutputSchema
 >(
   {
@@ -104,7 +118,23 @@ const generateContentFlow = ai.defineFlow<
       throw new Error('At least one input (prompt, image, or document) is required.');
     }
 
-    const {output} = await prompt(input);
+    // Prepare history with boolean flags for Handlebars
+    const processedHistory = input.conversationHistory?.map(message => ({
+      ...message,
+      isUser: message.role === 'user',
+      isAi: message.role === 'ai',
+    }));
+
+    // Prepare input for the prompt, removing original history and adding processed history
+    const promptInput: z.infer<typeof PromptInputSchema> = {
+        prompt: input.prompt,
+        imageDataUri: input.imageDataUri,
+        documentText: input.documentText,
+        processedHistory: processedHistory,
+    };
+
+
+    const {output} = await prompt(promptInput); // Pass the correctly structured input
 
     // Ensure output is not null or undefined
     if (!output) {
