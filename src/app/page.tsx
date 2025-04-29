@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, User, Bot, MessageSquareText, Settings, BrainCircuit } from "lucide-react";
+import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText } from "lucide-react"; // Added MessageSquareText
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,6 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -41,7 +40,7 @@ import {
   SidebarMenuButton,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 
 // Define the form schema using Zod
@@ -95,17 +94,27 @@ export default function Home() {
         setChatHistory((prev) => [...prev, aiMessage]);
       }
     } catch (error) {
-       console.error("Error generating text:", error);
+       console.error("Error generating response:", error); // More specific error log
        const errorMessage: ChatMessage = { role: "ai", content: "Sorry, I couldn't generate a response. Please try again." };
        setChatHistory((prev) => [...prev, errorMessage]);
        toast({
          title: "Error",
-         description: "Failed to generate text. Please check your API key and try again.",
+         description: "Failed to generate response. Please check your API key and try again.", // Adjusted description
          variant: "destructive",
        });
     } finally {
       setIsLoading(false);
     }
+  }
+
+  const getConversationTitle = () => {
+    const firstUserMessage = chatHistory.find(msg => msg.role === 'user');
+    if (firstUserMessage) {
+      return firstUserMessage.content.length > 40
+        ? firstUserMessage.content.substring(0, 40) + '...'
+        : firstUserMessage.content;
+    }
+    return "New Conversation";
   }
 
   return (
@@ -127,21 +136,22 @@ export default function Home() {
                     {chatHistory.length === 0 && (
                         <div className="text-center text-muted-foreground p-4">No history yet. Start chatting!</div>
                     )}
-                    {chatHistory.map((message, index) => (
-                        <SidebarMenuItem key={index} className="mb-2">
+                    {chatHistory.length > 0 && (
+                        <SidebarMenuItem>
                             <SidebarMenuButton
                                 size="sm"
                                 variant="ghost"
                                 className="h-auto justify-start whitespace-normal"
-                                disabled // Disable button functionality for now
+                                isActive // Indicate this is the active chat
+                                // disabled // Keep disabled as switching chats isn't implemented
                             >
                                 <div className="flex items-start gap-2">
-                                    {message.role === 'ai' ? <Bot size={16}/> : <User size={16}/>}
-                                    <span className="flex-1 text-xs">{message.content.length > 50 ? message.content.substring(0, 50) + '...' : message.content}</span>
+                                    <MessageSquareText size={16}/> {/* Icon for conversation */}
+                                    <span className="flex-1 text-xs font-medium">{getConversationTitle()}</span>
                                 </div>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
-                    ))}
+                    )}
                 </SidebarMenu>
             </ScrollArea>
         </SidebarContent>
