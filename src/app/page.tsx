@@ -10,7 +10,7 @@ import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSqua
 import Image from 'next/image';
 import { v4 as uuidv4 } from 'uuid';
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button"; // Import buttonVariants
 import {
   Card,
   CardContent,
@@ -100,38 +100,34 @@ function NoChatsPlaceholder() {
 }
 
 export default function Home() {
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    // Load conversations from localStorage on initial render
-    if (typeof window !== 'undefined') {
-        const savedConversations = localStorage.getItem('aiPlaygroundConversations');
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [isClient, setIsClient] = useState(false); // State to track client-side hydration
+
+  useEffect(() => {
+      // This effect runs only on the client after hydration
+      setIsClient(true);
+
+      // Load conversations from localStorage
+      const savedConversations = localStorage.getItem('aiPlaygroundConversations');
+      let initialConversations: Conversation[] = [];
+      if (savedConversations) {
         try {
-            return savedConversations ? JSON.parse(savedConversations) : [];
+          initialConversations = JSON.parse(savedConversations);
         } catch (error) {
-            console.error("Failed to parse conversations from localStorage", error);
-            return [];
+          console.error("Failed to parse conversations from localStorage", error);
         }
-    }
-    return [];
-  });
-  const [currentChatId, setCurrentChatId] = useState<string | null>(() => {
-     if (typeof window !== 'undefined') {
-        const savedChatId = localStorage.getItem('aiPlaygroundCurrentChatId');
-        // Use a temporary variable to hold initial conversations
-        let initialConversations: Conversation[] = [];
-        const savedConversations = localStorage.getItem('aiPlaygroundConversations');
-        if (savedConversations) {
-          try {
-            initialConversations = JSON.parse(savedConversations);
-          } catch (error) {
-            console.error("Failed to parse conversations from localStorage for initial chat ID", error);
-          }
-        }
-        // Check if a chat with this ID exists before setting it
-        const chatExists = initialConversations.some(conv => conv.id === savedChatId);
-        return chatExists ? savedChatId : null;
-     }
-     return null;
-  });
+      }
+      setConversations(initialConversations);
+
+      // Load current chat ID and validate it
+      const savedChatId = localStorage.getItem('aiPlaygroundCurrentChatId');
+      const chatExists = initialConversations.some(conv => conv.id === savedChatId);
+      setCurrentChatId(chatExists ? savedChatId : null);
+
+  }, []); // Empty dependency array ensures this runs once on the client
+
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; type: 'image' | 'text'; dataUriOrText: string } | null>(null);
   const { toast } = useToast();
@@ -141,7 +137,8 @@ export default function Home() {
 
    // Save conversations and current chat ID to localStorage whenever they change
    useEffect(() => {
-     if (typeof window !== 'undefined') {
+     // Only save if we are on the client and have finished initial loading
+     if (isClient) {
        localStorage.setItem('aiPlaygroundConversations', JSON.stringify(conversations));
        if (currentChatId) {
          localStorage.setItem('aiPlaygroundCurrentChatId', currentChatId);
@@ -149,18 +146,20 @@ export default function Home() {
          localStorage.removeItem('aiPlaygroundCurrentChatId');
        }
      }
-   }, [conversations, currentChatId]);
+   }, [conversations, currentChatId, isClient]);
 
-    // Ensure currentChatId is valid on load or if conversations change
+    // Ensure currentChatId is valid on load or if conversations change (Client-side only)
     useEffect(() => {
+      if (!isClient) return; // Don't run on server
+
       if (currentChatId && !conversations.some(conv => conv.id === currentChatId)) {
           // If the current chat ID is no longer valid (e.g., deleted), clear it
           setCurrentChatId(null);
       } else if (!currentChatId && conversations.length > 0) {
-          // If no chat is selected but chats exist, select the first one
+          // If no chat is selected but chats exist, do nothing automatically, let user select.
           // setCurrentChatId(conversations[0].id); // Optionally select the first chat
       }
-    }, [conversations, currentChatId]);
+    }, [conversations, currentChatId, isClient]);
 
 
   // Helper function to get the currently active conversation
@@ -266,8 +265,15 @@ export default function Home() {
      });
 
      // Get the most up-to-date conversation history *after* adding the user message
-     const latestConversation = conversations.find(c => c.id === chatId);
-     const historyForFlow = latestConversation?.messages.slice(0, -1) || []; // Exclude the current user message
+     // Need to ensure the state update has propagated, use a function in setConversations or useEffect dependency
+     const latestConversation = conversations.find(c => c.id === chatId); // May not be updated yet here
+     // A better way: pass history explicitly or fetch it inside the API call function if needed immediately
+     // For simplicity, let's get it before the async call, hoping the state update is fast enough (not ideal)
+     const currentConversationState = conversations.find(c => c.id === chatId);
+     const historyForFlow = currentConversationState?.messages.slice(0, -1).map(msg => ({ // Exclude the *just added* user message
+        role: msg.role === 'ai' ? 'ai' : 'user', // Ensure role is 'user' or 'ai'
+        content: msg.content,
+     })) || [];
 
     // Prepare data for the AI flow
     const flowInput: GenerateContentInput = {
@@ -408,6 +414,12 @@ export default function Home() {
 
    const currentChat = getCurrentChat();
 
+   // Render placeholder or null during SSR / initial client hydration
+   if (!isClient) {
+        // You can return a loading skeleton or null here
+        return null; // Or a loading indicator component
+    }
+
 
   return (
     <div className="flex h-screen bg-background">
@@ -472,7 +484,7 @@ export default function Home() {
                                                 e.stopPropagation(); // Prevent dialog closure issues if needed
                                                 handleDeleteChat(conversation.id);
                                               }}
-                                              className={cn(buttonVariants({ variant: "destructive" }))}
+                                              className={cn(buttonVariants({ variant: "destructive" }))} // Use cn with buttonVariants
                                             >
                                               Delete
                                             </AlertDialogAction>
@@ -651,8 +663,8 @@ export default function Home() {
                       <FormItem className="flex-1">
                          <div className={cn(
                             "rounded-lg p-0.5 relative bg-background border border-input focus-within:border-transparent", // Base styles with standard border
-                             (field.value || uploadedFile) && "border-transparent", // Hide standard border when gradient is active
-                             (field.value || uploadedFile) && !isLoading && "bg-gradient-to-r from-teal-400 via-purple-500 to-pink-500", // Apply gradient if value or file and not loading
+                             (form.watch("prompt") || uploadedFile) && "border-transparent", // Hide standard border when gradient is active (use form.watch)
+                             (form.watch("prompt") || uploadedFile) && !isLoading && "bg-gradient-to-r from-teal-400 via-purple-500 to-pink-500", // Apply gradient if value or file and not loading
                             "focus-within:ring-1 focus-within:ring-ring" // Standard focus ring on wrapper
                            )}>
 
