@@ -110,7 +110,7 @@ export default function Home() {
       setIsClient(true);
 
       // Load conversations from localStorage
-      const savedConversations = localStorage.getItem('aiPlaygroundConversations');
+      const savedConversations = localStorage.getItem('GravityAIConversations');
       let initialConversations: Conversation[] = [];
       if (savedConversations) {
         try {
@@ -122,7 +122,7 @@ export default function Home() {
       setConversations(initialConversations);
 
       // Load current chat ID and validate it
-      const savedChatId = localStorage.getItem('aiPlaygroundCurrentChatId');
+      const savedChatId = localStorage.getItem('GravityAICurrentChatId');
       const chatExists = initialConversations.some(conv => conv.id === savedChatId);
       setCurrentChatId(chatExists ? savedChatId : null);
 
@@ -140,11 +140,11 @@ export default function Home() {
    useEffect(() => {
      // Only save if we are on the client and have finished initial loading
      if (isClient) {
-       localStorage.setItem('aiPlaygroundConversations', JSON.stringify(conversations));
+       localStorage.setItem('GravityAIConversations', JSON.stringify(conversations));
        if (currentChatId) {
-         localStorage.setItem('aiPlaygroundCurrentChatId', currentChatId);
+         localStorage.setItem('GravityAICurrentChatId', currentChatId);
        } else {
-         localStorage.removeItem('aiPlaygroundCurrentChatId');
+         localStorage.removeItem('GravityAICurrentChatId');
        }
      }
    }, [conversations, currentChatId, isClient]);
@@ -441,7 +441,7 @@ export default function Home() {
              <Avatar className="h-8 w-8">
                 <AvatarFallback><BrainCircuit size={20} /></AvatarFallback>
              </Avatar>
-             <span className="text-lg font-semibold text-foreground">AI Playground</span>
+             <span className="text-lg font-semibold text-foreground">GravityAI</span>
           </div>
            <Button variant="outline" size="icon" className="h-8 w-8" onClick={startNewChat} aria-label="Start New Chat">
               <PlusSquare size={20} />
@@ -554,7 +554,7 @@ export default function Home() {
                  {!currentChat ? (
                      <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground pt-10">
                         <BrainCircuit size={48} className="mb-4 text-primary"/>
-                        <p className="text-lg">Welcome to AI Playground!</p>
+                        <p className="text-lg">Welcome to GravityAI!</p>
                         <p>Start a new chat or select one from the sidebar.</p>
                      </div>
                   ) : currentChat.messages.length === 0 ? (

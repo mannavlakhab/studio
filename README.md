@@ -1,12 +1,12 @@
-# AI Playground
+# GravityAI
 
 ## Project Description
 
-AI Playground is a web application designed to provide an interactive space where users can engage in conversations with an AI, upload files, and manage multiple discussions. This project was initiated in response to a user request for a platform that allows them to interact with an AI, manage multiple conversations, and send messages. The application aims to offer a seamless experience for both text-based and file-based interactions with the AI, with a clean and intuitive interface.
+GravityAI is a web application that provides an interactive environment where users can converse with an AI, upload files, and manage multiple discussions. The project was developed in response to a user's request for a platform that enables interaction with an AI, management of multiple conversations, and the ability to send messages. GravityAI aims to provide a smooth experience for both text-based and file-based interactions with the AI, all within a clean and intuitive user interface.
 
 ## Core Features
 
--   **Multiple Conversations:** Users can create and manage multiple distinct conversations, allowing them to discuss different topics or engage in separate lines of thought without mixing their chat histories.
+-   **Multiple Conversations:** Users have the ability to create and manage multiple distinct conversations. This feature allows for discussing different topics or following separate lines of thought without mixing chat histories.
 -   **Conversation Persistence:** Conversations are saved to the browser's local storage, ensuring that the chat history is retained across browser sessions. Users can pick up where they left off, even after closing and reopening the application.
 -   **New Chat Creation:** Starting a new conversation is straightforward, with a dedicated "New Chat" button prominently placed in the sidebar.
 -   **Chat Switching:** Users can easily switch between active conversations, allowing them to multitask and manage their interactions with the AI efficiently.
