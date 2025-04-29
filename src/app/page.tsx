@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -5,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSquare, Paperclip, X, FileText, Image as ImageIcon } from "lucide-react";
+import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSquare, Paperclip, X, FileText, Image as ImageIcon, Trash2 } from "lucide-react"; // Added Trash2
 import Image from 'next/image';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -44,8 +45,20 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { CodeBlock } from "@/components/ui/code-block"; // Import CodeBlock
-import { CopyButton } from "@/components/ui/copy-button"; // Import CopyButton
+import { CodeBlock } from "@/components/ui/code-block";
+import { CopyButton } from "@/components/ui/copy-button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
 
 // Regex to detect fenced code blocks (basic)
 const CODE_BLOCK_REGEX = /^```(\w+)?\n([\s\S]+)\n```$/;
@@ -103,8 +116,17 @@ export default function Home() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(() => {
      if (typeof window !== 'undefined') {
         const savedChatId = localStorage.getItem('aiPlaygroundCurrentChatId');
+        // Use a temporary variable to hold initial conversations
+        let initialConversations: Conversation[] = [];
+        const savedConversations = localStorage.getItem('aiPlaygroundConversations');
+        if (savedConversations) {
+          try {
+            initialConversations = JSON.parse(savedConversations);
+          } catch (error) {
+            console.error("Failed to parse conversations from localStorage for initial chat ID", error);
+          }
+        }
         // Check if a chat with this ID exists before setting it
-        const initialConversations = conversations; // Use the already loaded conversations
         const chatExists = initialConversations.some(conv => conv.id === savedChatId);
         return chatExists ? savedChatId : null;
      }
@@ -243,12 +265,16 @@ export default function Home() {
         return updatedConvs;
      });
 
+     // Get the most up-to-date conversation history *after* adding the user message
+     const latestConversation = conversations.find(c => c.id === chatId);
+     const historyForFlow = latestConversation?.messages.slice(0, -1) || []; // Exclude the current user message
+
     // Prepare data for the AI flow
     const flowInput: GenerateContentInput = {
         prompt: data.prompt,
         imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
         documentText: uploadedFile?.type === 'text' ? uploadedFile?.dataUriOrText : undefined,
-        conversationHistory: getCurrentChat()?.messages,
+        conversationHistory: historyForFlow, // Send history *before* the current user message
       };
 
     // Reset form *after* extracting necessary data but *before* API call starts visually
@@ -307,6 +333,16 @@ export default function Home() {
       setUploadedFile(null); // Reset file state
       if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  const handleDeleteChat = (chatIdToDelete: string) => {
+      setConversations(prevConvs => prevConvs.filter(conv => conv.id !== chatIdToDelete));
+      // If the deleted chat was the current one, reset currentChatId
+      if (currentChatId === chatIdToDelete) {
+          setCurrentChatId(null);
+      }
+      toast({ title: "Chat Deleted", description: "The conversation has been removed." });
+  };
+
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -408,16 +444,41 @@ export default function Home() {
                                             {conversation.title || "New Chat"}
                                         </span>
                                     </div>
-                                    {/* Optional: Add delete button */}
-                                    {/* <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100"
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteChat(conversation.id); }}
-                                        aria-label="Delete chat"
-                                    >
-                                        <X size={14} />
-                                    </Button> */}
+                                    {/* Delete button */}
+                                      <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive"
+                                                onClick={(e) => e.stopPropagation()} // Prevent switching chat
+                                                aria-label="Delete chat"
+                                            >
+                                                <Trash2 size={14} />
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                          <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                              This action cannot be undone. This will permanently delete the chat
+                                              "{conversation.title}".
+                                            </AlertDialogDescription>
+                                          </AlertDialogHeader>
+                                          <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction
+                                              onClick={(e) => {
+                                                e.stopPropagation(); // Prevent dialog closure issues if needed
+                                                handleDeleteChat(conversation.id);
+                                              }}
+                                              className={cn(buttonVariants({ variant: "destructive" }))}
+                                            >
+                                              Delete
+                                            </AlertDialogAction>
+                                          </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         ))
@@ -650,7 +711,7 @@ export default function Home() {
                     {isLoading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
-                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 0 24" fill="currentColor" className="w-5 h-5">
+                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                          <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
                        </svg>
                     )}
@@ -665,4 +726,3 @@ export default function Home() {
     </div>
   );
 }
-
