@@ -1,1 +1,2 @@
-import '@/ai/flows/generate-text.ts';
+
+import '@/ai/flows/generate-content-flow.ts'; // Updated import

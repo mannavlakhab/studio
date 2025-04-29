@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -5,7 +6,8 @@ import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSquare } from "lucide-react";
+import { Loader2, User, Bot, Settings, BrainCircuit, MessageSquareText, PlusSquare, Paperclip, X, FileText, Image as ImageIcon } from "lucide-react";
+import Image from 'next/image'; // Import next/image
 import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
 
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { generateText, type GenerateTextInput } from "@/ai/flows/generate-text";
+import { generateContent, type GenerateContentInput } from "@/ai/flows/generate-content-flow"; // Updated import
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -42,16 +44,26 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge"; // Import Badge
 
 // Define the form schema using Zod
+// Prompt is no longer strictly required if a file is attached
 const FormSchema = z.object({
-  prompt: z.string().min(1, "Prompt cannot be empty."),
+  prompt: z.string(),
+  imageDataUri: z.string().optional(),
+  documentText: z.string().optional(),
+}).refine(data => data.prompt || data.imageDataUri || data.documentText, {
+  message: "Please enter a prompt or attach a file.",
+  path: ["prompt"], // Assign error to prompt field for simplicity
 });
+
 
 // Define the structure for a chat message
 interface ChatMessage {
   role: "user" | "ai";
   content: string;
+  imageDataUri?: string; // Optional image for user message
+  documentName?: string; // Optional document name for user message
 }
 
 // Define the structure for a conversation
@@ -61,25 +73,42 @@ interface Conversation {
   messages: ChatMessage[];
 }
 
+// Allowed file types
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_TEXT_TYPES = ['text/plain'];
+// Basic PDF handling might involve sending data URI if model supports it, or extracting text
+// For now, we'll primarily handle plain text and images client-side.
+
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; type: 'image' | 'text'; dataUriOrText: string } | null>(null);
   const { toast } = useToast();
   const sidebarScrollAreaRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper function to get the currently active conversation
   const getCurrentChat = (): Conversation | undefined => {
     return conversations.find(c => c.id === currentChatId);
   };
 
-  const form = useForm<GenerateTextInput>({
+  const form = useForm<GenerateContentInput>({ // Updated type
     resolver: zodResolver(FormSchema),
     defaultValues: {
       prompt: "",
+      imageDataUri: undefined,
+      documentText: undefined,
     },
   });
+
+   // Reset file state when switching chats or starting new one
+   useEffect(() => {
+    setUploadedFile(null);
+    form.setValue('imageDataUri', undefined);
+    form.setValue('documentText', undefined);
+   }, [currentChatId, form]);
 
   // Scroll chat history to the bottom when messages change
   useEffect(() => {
@@ -90,12 +119,13 @@ export default function Home() {
 
 
   // Function to set or update conversation title
-  const updateConversationTitle = (chatId: string, prompt: string) => {
+  const updateConversationTitle = (chatId: string, prompt: string, fileName?: string) => {
      setConversations(prevConvs =>
         prevConvs.map(conv => {
             // Only update title if it's the default "New Conversation"
             if (conv.id === chatId && conv.title === "New Conversation") {
-                 const newTitle = prompt.length > 40 ? prompt.substring(0, 40) + '...' : prompt;
+                 let newTitle = prompt || `Chat about ${fileName}`;
+                 newTitle = newTitle.length > 40 ? newTitle.substring(0, 40) + '...' : newTitle;
                  return { ...conv, title: newTitle };
             }
             return conv;
@@ -104,9 +134,16 @@ export default function Home() {
   };
 
 
-  async function onSubmit(data: GenerateTextInput) {
+  async function onSubmit(data: GenerateContentInput) {
+    // Ensure there's either a prompt or a file
+    if (!data.prompt && !uploadedFile) {
+        toast({ title: "Input Required", description: "Please enter a prompt or attach a file.", variant: "destructive" });
+        return;
+    }
+
     setIsLoading(true);
     let chatId = currentChatId;
+    const isNewChat = !chatId;
 
     // If no chat is selected, start a new one
     if (!chatId) {
@@ -120,7 +157,12 @@ export default function Home() {
         return;
     }
 
-    const userMessage: ChatMessage = { role: "user", content: data.prompt };
+    const userMessage: ChatMessage = {
+        role: "user",
+        content: data.prompt,
+        imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
+        documentName: uploadedFile?.type === 'text' ? uploadedFile.name : undefined,
+      };
 
     // Update conversations state
     setConversations(prevConvs =>
@@ -129,33 +171,32 @@ export default function Home() {
       )
     );
 
-    // Set title if it's the first user message
-    const currentChat = conversations.find(c => c.id === chatId);
-    if (currentChat?.messages.length === 0) { // Check if this is the first message being added
-        updateConversationTitle(chatId, data.prompt);
+     // Set title if it's the first user message in a new chat
+    if (isNewChat) {
+        updateConversationTitle(chatId, data.prompt, uploadedFile?.name);
     }
 
 
+    // Prepare data for the AI flow
+    const flowInput: GenerateContentInput = {
+        prompt: data.prompt,
+        imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
+        documentText: uploadedFile?.type === 'text' ? uploadedFile.dataUriOrText : undefined,
+      };
+
     form.reset(); // Reset form after processing input
+    setUploadedFile(null); // Clear uploaded file state
 
     try {
-        // Check for image generation keywords
-        if (data.prompt.toLowerCase().includes("create") || data.prompt.toLowerCase().includes("draw") || data.prompt.toLowerCase().includes("make") ) {
-            const aiMessage: ChatMessage = { role: "ai", content: "Image generation is not implemented. But you are on the right track" };
-             setConversations(prevConvs =>
-                prevConvs.map(conv =>
-                    conv.id === chatId ? { ...conv, messages: [...conv.messages, aiMessage] } : conv
-                )
-             );
-        } else {
-            const result = await generateText(data);
-            const aiMessage: ChatMessage = { role: "ai", content: result.text };
-             setConversations(prevConvs =>
-                prevConvs.map(conv =>
-                    conv.id === chatId ? { ...conv, messages: [...conv.messages, aiMessage] } : conv
-                )
-            );
-        }
+      // Call the updated generateContent flow
+      const result = await generateContent(flowInput);
+      const aiMessage: ChatMessage = { role: "ai", content: result.text };
+       setConversations(prevConvs =>
+          prevConvs.map(conv =>
+              conv.id === chatId ? { ...conv, messages: [...conv.messages, aiMessage] } : conv
+          )
+      );
+
     } catch (error) {
        console.error("Error generating response:", error);
        const errorMessage: ChatMessage = { role: "ai", content: "Sorry, I couldn't generate a response. Please try again." };
@@ -185,12 +226,61 @@ export default function Home() {
     setConversations(prev => [newConversation, ...prev]); // Add new chat to the beginning
     setCurrentChatId(newChatId);
     form.reset(); // Reset input field
+    setUploadedFile(null); // Reset file state
     return newChatId; // Return the ID of the newly created chat
   };
 
   const switchChat = (chatId: string) => {
       setCurrentChatId(chatId);
       form.reset(); // Optionally reset input when switching chats
+      setUploadedFile(null); // Reset file state
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUploadedFile({ name: file.name, type: 'image', dataUriOrText: reader.result as string });
+        form.setValue('imageDataUri', reader.result as string);
+        form.setValue('documentText', undefined); // Ensure only one file type is set
+      };
+      reader.onerror = (error) => {
+        console.error("Error reading image file:", error);
+        toast({ title: "Error", description: "Could not read image file.", variant: "destructive" });
+      };
+      reader.readAsDataURL(file);
+    } else if (ALLOWED_TEXT_TYPES.includes(file.type)) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUploadedFile({ name: file.name, type: 'text', dataUriOrText: reader.result as string });
+        form.setValue('documentText', reader.result as string);
+        form.setValue('imageDataUri', undefined); // Ensure only one file type is set
+      };
+      reader.onerror = (error) => {
+        console.error("Error reading text file:", error);
+        toast({ title: "Error", description: "Could not read text file.", variant: "destructive" });
+      };
+      reader.readAsText(file);
+    } else {
+      toast({ title: "Unsupported File Type", description: `File type "${file.type}" is not supported. Please upload an image (JPG, PNG, GIF, WEBP) or a plain text file (.txt).`, variant: "destructive" });
+      // Reset file input if type is invalid
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const removeUploadedFile = () => {
+    setUploadedFile(null);
+    form.setValue('imageDataUri', undefined);
+    form.setValue('documentText', undefined);
+    // Reset the file input visually
+    if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+    }
   };
 
    const currentChat = getCurrentChat();
@@ -207,7 +297,7 @@ export default function Home() {
              <span className="text-lg font-semibold">AI Playground</span>
           </div>
            {/* Explicitly call startNewChat which now handles state updates */}
-           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={startNewChat} aria-label="Start New Chat">
+           <Button variant="outline" size="icon" className="h-8 w-8" onClick={startNewChat} aria-label="Start New Chat">
               <PlusSquare size={20} />
            </Button>
         </SidebarHeader>
@@ -222,7 +312,6 @@ export default function Home() {
                         <SidebarMenuItem key={conversation.id}>
                             <SidebarMenuButton
                                 size="sm"
-                                variant="ghost"
                                 className="h-auto justify-start whitespace-normal text-left" // Ensure text wraps and aligns left
                                 isActive={conversation.id === currentChatId}
                                 onClick={() => switchChat(conversation.id)}
@@ -274,12 +363,12 @@ export default function Home() {
                  {!currentChat || currentChat.messages.length === 0 ? (
                      <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground pt-10">
                         <BrainCircuit size={48} className="mb-4"/>
-                        <p>Ask me anything!</p>
+                        <p>Ask me anything, or attach a file!</p>
                      </div>
                   ) : (
                    currentChat.messages.map((message, index) => (
                     <div
-                      key={index} // Consider using more stable keys if messages can be reordered/deleted
+                      key={`${currentChat.id}-${index}`} // Use chat ID and index for a more robust key
                       className={cn(
                         "flex items-start gap-3",
                         message.role === "user" ? "justify-end" : "justify-start"
@@ -292,13 +381,31 @@ export default function Home() {
                       )}
                       <div
                         className={cn(
-                          "max-w-[75%] rounded-lg p-3 text-sm shadow-sm",
+                          "max-w-[75%] rounded-lg p-3 text-sm shadow-sm flex flex-col gap-2", // Added flex-col and gap
                            message.role === "user"
                              ? "bg-primary text-primary-foreground"
                              : "bg-secondary text-secondary-foreground"
                         )}
                       >
-                         <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                         {/* Display image if present */}
+                         {message.role === "user" && message.imageDataUri && (
+                            <Image
+                                src={message.imageDataUri}
+                                alt="User upload"
+                                width={200} // Adjust size as needed
+                                height={200}
+                                className="rounded-md object-cover max-w-full"
+                            />
+                         )}
+                         {/* Display document badge if present */}
+                         {message.role === "user" && message.documentName && (
+                             <Badge variant="secondary" className="inline-flex items-center gap-1 self-start">
+                                 <FileText size={14} />
+                                 {message.documentName}
+                             </Badge>
+                         )}
+                         {/* Display text content */}
+                         {message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>}
                       </div>
                       {message.role === "user" && (
                          <Avatar className="h-8 w-8 flex-shrink-0">
@@ -328,35 +435,78 @@ export default function Home() {
                   onSubmit={form.handleSubmit(onSubmit)}
                   className="flex w-full items-start space-x-4"
                 >
+                    {/* File Upload Button */}
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="self-end h-[60px] w-10 flex-shrink-0"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isLoading || !!uploadedFile} // Disable if loading or file already uploaded
+                        aria-label="Attach file"
+                    >
+                        <Paperclip size={20} />
+                    </Button>
+                    {/* Hidden File Input */}
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileChange}
+                        className="hidden"
+                        accept={[...ALLOWED_IMAGE_TYPES, ...ALLOWED_TEXT_TYPES].join(',')} // Define acceptable file types
+                        disabled={isLoading}
+                    />
+
                   <FormField
                     control={form.control}
                     name="prompt"
                     render={({ field }) => (
                       <FormItem className="flex-1">
-                        {/* Gradient Border Wrapper - Conditionally apply border */}
+                         {/* Gradient Border Wrapper - Conditionally apply border */}
                          <div className={cn(
-                            "rounded-lg p-0.5", // Base styles
-                            field.value && "bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500", // Apply gradient only if there's value
-                            // Re-add focus ring styles for accessibility when the wrapper is focused
+                            "rounded-lg p-0.5 relative", // Base styles, relative positioning
+                            (field.value || uploadedFile) && "bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500", // Apply gradient if value or file
                             "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background"
                            )}>
+
+                            {/* Display uploaded file info */}
+                            {uploadedFile && (
+                                <div className="absolute top-1 left-2 flex items-center gap-1 z-10">
+                                <Badge variant="secondary" className="flex items-center gap-1 pr-1">
+                                    {uploadedFile.type === 'image' ? <ImageIcon size={14} /> : <FileText size={14} />}
+                                    <span className="text-xs max-w-[100px] truncate">{uploadedFile.name}</span>
+                                    <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-4 w-4 rounded-full hover:bg-muted-foreground/20"
+                                    onClick={removeUploadedFile}
+                                    aria-label="Remove file"
+                                    >
+                                    <X size={12} />
+                                    </Button>
+                                </Badge>
+                                </div>
+                            )}
+
                           <FormControl>
                             <Textarea
-                              placeholder="Type your message here..."
+                              placeholder={uploadedFile ? "Describe the file or ask a question..." : "Type your message here..."}
                               className={cn(
                                 "min-h-[60px] resize-none text-base flex-1 bg-background",
-                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0" // Keep these to remove default textarea outline/ring
+                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
+                                uploadedFile ? "pt-7" : "" // Add padding-top if file is uploaded
                                 )}
                               {...field}
                               aria-label="Prompt Input"
                               onKeyDown={(e) => {
                                   if (e.key === 'Enter' && !e.shiftKey && !isLoading) {
                                       e.preventDefault();
-                                      // Ensure a chat exists before submitting
-                                      if (currentChatId || form.getValues("prompt")) {
+                                      // Ensure a chat exists or input/file exists before submitting
+                                      if (currentChatId || form.getValues("prompt") || uploadedFile) {
                                           form.handleSubmit(onSubmit)();
                                       } else {
-                                           toast({ title: "Info", description: "Start typing to begin a new chat.", variant: "default" });
+                                           toast({ title: "Info", description: "Start typing or attach a file to begin.", variant: "default" });
                                       }
                                   }
                               }}
@@ -368,7 +518,7 @@ export default function Home() {
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" size="lg" className="self-end h-[60px]" disabled={isLoading || !form.watch("prompt")}>
+                  <Button type="submit" size="lg" className="self-end h-[60px]" disabled={isLoading || (!form.watch("prompt") && !uploadedFile)}>
                     {isLoading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
@@ -385,3 +535,4 @@ export default function Home() {
     </div>
   );
 }
+
