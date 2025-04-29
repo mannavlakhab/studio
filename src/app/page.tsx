@@ -255,21 +255,30 @@ export default function Home() {
                     name="prompt"
                     render={({ field }) => (
                       <FormItem className="flex-1">
-                        <FormControl>
-                          <Textarea
-                            placeholder="Type your message here..."
-                            className="min-h-[60px] resize-none text-base flex-1 bg-input border-border focus:ring-ring"
-                            {...field}
-                            aria-label="Prompt Input"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey && !isLoading) {
-                                    e.preventDefault();
-                                    form.handleSubmit(onSubmit)();
-                                }
-                            }}
-                            disabled={isLoading}
-                          />
-                        </FormControl>
+                        {/* Gradient Border Wrapper */}
+                        <div className={cn(
+                            "rounded-lg p-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500",
+                            "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background" // Optional: Add focus ring to wrapper
+                           )}>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Type your message here..."
+                              className={cn(
+                                "min-h-[60px] resize-none text-base flex-1 bg-background", // Use background color
+                                "border-0 focus-visible:ring-0 focus-visible:ring-offset-0" // Remove default border and focus ring
+                                )}
+                              {...field}
+                              aria-label="Prompt Input"
+                              onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey && !isLoading) {
+                                      e.preventDefault();
+                                      form.handleSubmit(onSubmit)();
+                                  }
+                              }}
+                              disabled={isLoading}
+                            />
+                          </FormControl>
+                         </div>
                         <FormMessage />
                       </FormItem>
                     )}
