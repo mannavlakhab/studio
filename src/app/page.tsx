@@ -257,8 +257,7 @@ export default function Home() {
                       <FormItem className="flex-1">
                         {/* Gradient Border Wrapper */}
                         <div className={cn(
-                            "rounded-lg p-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500",
-                            "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background" // Optional: Add focus ring to wrapper
+                            "rounded-lg p-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500" // Removed focus ring classes
                            )}>
                           <FormControl>
                             <Textarea
