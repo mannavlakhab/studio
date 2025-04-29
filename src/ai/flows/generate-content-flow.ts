@@ -1,7 +1,7 @@
-
 'use server';
 /**
  * @fileOverview An AI agent that generates content based on text, optional images, and optional documents.
+ * It incorporates conversation history for context.
  *
  * - generateContent - A function that handles the content generation process.
  * - GenerateContentInput - The input type for the generateContent function.
@@ -26,6 +26,10 @@ const GenerateContentInputSchema = z.object({
     .describe(
       'Optional: Text content extracted from an uploaded document (e.g., .txt file). Use this for context.'
     ),
+  conversationHistory: z.array(z.object({
+    role: z.enum(['user', 'ai']),
+    content: z.string(),
+  })).optional().describe('Optional: The conversation history to maintain context.'),
 });
 export type GenerateContentInput = z.infer<typeof GenerateContentInputSchema>;
 
@@ -49,8 +53,21 @@ const prompt = ai.definePrompt({
   output: {
     schema: GenerateContentOutputSchema,
   },
-  // Updated prompt to handle optional image and document text
-  prompt: `Generate content based on the following information. Prioritize the user's prompt, but use the image and/or document text as context if provided.
+  // Updated prompt to handle optional image, document text, and conversation history
+  prompt: `You are an expert AI assistant. Generate content based on the following information. Prioritize the user's prompt, but use the image, document text, and conversation history as context if provided.
+
+{{#if conversationHistory}}
+Conversation History:
+---
+{{#each conversationHistory}}
+{{#if (eq this.role "user")}}
+User: {{{this.content}}}
+{{else}}
+AI: {{{this.content}}}
+{{/if}}
+{{/each}}
+---
+{{/if}}
 
 User Prompt: {{{prompt}}}
 

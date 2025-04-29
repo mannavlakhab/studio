@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -242,6 +241,7 @@ export default function Home() {
         prompt: data.prompt,
         imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
         documentText: uploadedFile?.type === 'text' ? uploadedFile.dataUriOrText : undefined,
+        conversationHistory: getCurrentChat()?.messages,
       };
 
     // Reset form *after* extracting necessary data but *before* API call starts visually
