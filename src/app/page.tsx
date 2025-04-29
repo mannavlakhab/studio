@@ -79,6 +79,13 @@ interface Conversation {
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_TEXT_TYPES = ['text/plain'];
 
+// Client component to show when there are no chats
+function NoChatsPlaceholder() {
+    return (
+        <div className="text-center text-muted-foreground p-4 text-sm">No chats yet. Start one!</div>
+    );
+}
+
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     // Load conversations from localStorage on initial render
@@ -240,7 +247,7 @@ export default function Home() {
     const flowInput: GenerateContentInput = {
         prompt: data.prompt,
         imageDataUri: uploadedFile?.type === 'image' ? uploadedFile.dataUriOrText : undefined,
-        documentText: uploadedFile?.type === 'text' ? uploadedFile.dataUriOrText : undefined,
+        documentText: uploadedFile?.type === 'text' ? uploadedFile?.dataUriOrText : undefined,
         conversationHistory: getCurrentChat()?.messages,
       };
 
@@ -384,36 +391,37 @@ export default function Home() {
         <SidebarContent className="p-0">
              <ScrollArea className="h-full p-2" ref={sidebarScrollAreaRef}>
                  <SidebarMenu>
-                    {conversations.length === 0 && (
-                        <div className="text-center text-muted-foreground p-4 text-sm">No chats yet. Start one!</div>
-                    )}
-                    {conversations.map((conversation) => (
-                        <SidebarMenuItem key={conversation.id}>
-                            <SidebarMenuButton
-                                size="sm"
-                                className="h-auto justify-start whitespace-normal text-left pr-8 relative group" // Added pr-8, relative, group
-                                isActive={conversation.id === currentChatId}
-                                onClick={() => switchChat(conversation.id)}
-                            >
-                                <div className="flex items-start gap-2 w-full">
-                                    <MessageSquareText size={16} className="flex-shrink-0 mt-1 text-muted-foreground"/>
-                                    <span className="flex-1 text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap text-foreground">
-                                        {conversation.title || "New Chat"}
-                                    </span>
-                                </div>
-                                {/* Optional: Add delete button */}
-                                {/* <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100"
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteChat(conversation.id); }}
-                                    aria-label="Delete chat"
+                    {conversations.length === 0 ? (
+                         <NoChatsPlaceholder />
+                    ) : (
+                        conversations.map((conversation) => (
+                            <SidebarMenuItem key={conversation.id}>
+                                <SidebarMenuButton
+                                    size="sm"
+                                    className="h-auto justify-start whitespace-normal text-left pr-8 relative group" // Added pr-8, relative, group
+                                    isActive={conversation.id === currentChatId}
+                                    onClick={() => switchChat(conversation.id)}
                                 >
-                                    <X size={14} />
-                                </Button> */}
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                    ))}
+                                    <div className="flex items-start gap-2 w-full">
+                                        <MessageSquareText size={16} className="flex-shrink-0 mt-1 text-muted-foreground"/>
+                                        <span className="flex-1 text-xs font-medium overflow-hidden text-ellipsis whitespace-nowrap text-foreground">
+                                            {conversation.title || "New Chat"}
+                                        </span>
+                                    </div>
+                                    {/* Optional: Add delete button */}
+                                    {/* <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100"
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteChat(conversation.id); }}
+                                        aria-label="Delete chat"
+                                    >
+                                        <X size={14} />
+                                    </Button> */}
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        ))
+                    )}
                 </SidebarMenu>
             </ScrollArea>
         </SidebarContent>
@@ -642,7 +650,7 @@ export default function Home() {
                     {isLoading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
-                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 0 24" fill="currentColor" className="w-5 h-5">
                          <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
                        </svg>
                     )}
@@ -657,3 +665,4 @@ export default function Home() {
     </div>
   );
 }
+
